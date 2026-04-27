@@ -2,7 +2,6 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Reporte Maestro de Guías</title>
 
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.css">
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap4.min.css">
@@ -15,14 +14,16 @@
   <style>
     body { padding: 20px; background:#f4f6f9; }
     .card { box-shadow:0 4px 10px rgba(0,0,0,0.1); border-radius:10px; }
+    .loader { border:4px solid #f3f3f3; border-top:4px solid #3498db; border-radius:50%; width:30px; height:30px; animation:spin 1s linear infinite; display:inline-block; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
   </style>
 </head>
 
 <body>
 
-<div class="container">
+<div class="container-fluid">
 
-  <h3>Reporte de Guías</h3>
+  <h3>📦 Reporte de Guías</h3>
 
   <div class="row">
     <div class="col-md-3">
@@ -36,7 +37,10 @@
     </div>
 
     <div class="col-md-3">
-      <button class="btn btn-primary mt-4" onclick="buscar()">Buscar</button>
+      <button class="btn btn-primary mt-4" onclick="buscar()">
+        Buscar
+        <span id="loader" style="display:none;" class="loader"></span>
+      </button>
     </div>
   </div>
 
@@ -70,8 +74,8 @@ $(document).ready(function () {
   document.getElementById("end_date").value = hoy;
 });
 
-async function fetchPage(start_date, end_date, page) {
-  const res = await fetch(`/api/guias?start_date=${start_date}&end_date=${end_date}&page=${page}`);
+async function fetchPage(start, end, page) {
+  const res = await fetch(`/api/guias?start_date=${start}&end_date=${end}&page=${page}`);
   return await res.json();
 }
 
@@ -80,25 +84,32 @@ async function buscar() {
   const start = document.getElementById("start_date").value;
   const end = document.getElementById("end_date").value;
 
+  document.getElementById("loader").style.display = "inline-block";
+
   tabla.clear().draw();
 
   let page = 1;
   let totalPages = 1;
 
   try {
+
     while (page <= totalPages) {
 
-      const data = await fetchPage(start, end, page);
+      const response = await fetchPage(start, end, page);
 
-      if (!data.response) break;
+      console.log("RESPUESTA API:", response);
 
-      totalPages = data.response.pager?.pages || 1;
+      const data = response?.response || response;
 
-      data.response.rows.forEach(r => {
+      const rows = data?.rows || [];
+
+      totalPages = data?.pager?.pages || 1;
+
+      rows.forEach(r => {
         tabla.row.add([
-          r.guide_number,
+          r.guide_number || "",
           r.status || "",
-          r.createdAt,
+          r.createdAt || "",
           r.seller?.company_name || "",
           r.client?.name || "",
           r.total || 0
@@ -109,15 +120,17 @@ async function buscar() {
 
       page++;
 
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 1200));
     }
 
-    Swal.fire("Listo", "Datos cargados", "success");
+    Swal.fire("OK", "Datos cargados correctamente", "success");
 
   } catch (e) {
     console.log(e);
-    Swal.fire("Error", "No se pudo cargar", "error");
+    Swal.fire("Error", "No se pudo cargar información", "error");
   }
+
+  document.getElementById("loader").style.display = "none";
 }
 
 </script>
