@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Reporte Maestro de Guías</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap4.min.css">
+
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap4.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <style>
+    body { padding: 20px; background:#f4f6f9; }
+    .card { box-shadow:0 4px 10px rgba(0,0,0,0.1); border-radius:10px; }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h3>Reporte de Guías</h3>
+
+  <div class="row">
+    <div class="col-md-3">
+      <label>Fecha inicio</label>
+      <input type="date" id="start_date" class="form-control">
+    </div>
+
+    <div class="col-md-3">
+      <label>Fecha fin</label>
+      <input type="date" id="end_date" class="form-control">
+    </div>
+
+    <div class="col-md-3">
+      <button class="btn btn-primary mt-4" onclick="buscar()">Buscar</button>
+    </div>
+  </div>
+
+  <hr>
+
+  <table id="tabla" class="table table-striped">
+    <thead>
+      <tr>
+        <th>Guía</th>
+        <th>Estado</th>
+        <th>Fecha</th>
+        <th>Empresa</th>
+        <th>Cliente</th>
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+</div>
+
+<script>
+
+let tabla;
+
+$(document).ready(function () {
+  tabla = $('#tabla').DataTable();
+
+  let hoy = new Date().toISOString().split("T")[0];
+  document.getElementById("start_date").value = hoy;
+  document.getElementById("end_date").value = hoy;
+});
+
+async function fetchPage(start_date, end_date, page) {
+  const res = await fetch(`/api/guias?start_date=${start_date}&end_date=${end_date}&page=${page}`);
+  return await res.json();
+}
+
+async function buscar() {
+
+  const start = document.getElementById("start_date").value;
+  const end = document.getElementById("end_date").value;
+
+  tabla.clear().draw();
+
+  let page = 1;
+  let totalPages = 1;
+
+  try {
+    while (page <= totalPages) {
+
+      const data = await fetchPage(start, end, page);
+
+      if (!data.response) break;
+
+      totalPages = data.response.pager?.pages || 1;
+
+      data.response.rows.forEach(r => {
+        tabla.row.add([
+          r.guide_number,
+          r.status || "",
+          r.createdAt,
+          r.seller?.company_name || "",
+          r.client?.name || "",
+          r.total || 0
+        ]);
+      });
+
+      tabla.draw(false);
+
+      page++;
+
+      await new Promise(r => setTimeout(r, 1500));
+    }
+
+    Swal.fire("Listo", "Datos cargados", "success");
+
+  } catch (e) {
+    console.log(e);
+    Swal.fire("Error", "No se pudo cargar", "error");
+  }
+}
+
+</script>
+
+</body>
+</html>
