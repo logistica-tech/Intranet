@@ -14,9 +14,28 @@
 
   <style>
     body { padding: 20px; background:#f4f6f9; }
-    .card { box-shadow:0 4px 10px rgba(0,0,0,0.1); border-radius:60px; }
-    .loader { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; margin-left: 10px; vertical-align: middle;}
+    .card { box-shadow:0 4px 10px rgba(0,0,0,0.1); border-radius:10px; }
+    .loader { border: 4px solid #f3f3f3; border-top: 4px solid #ffffff; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; margin-left: 10px; vertical-align: middle;}
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    
+    /* 🔥 ESTILO DEL BOTÓN NARANJA */
+    .btn-naranja {
+      background-color: #ff7e00; /* Color naranja vibrante */
+      border-color: #e06e00;
+      color: #ffffff;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .btn-naranja:hover {
+      background-color: #e06e00; /* Un poco más oscuro al pasar el mouse */
+      border-color: #c56000;
+      color: #ffffff;
+    }
+    .btn-naranja:disabled {
+      background-color: #ffc299;
+      border-color: #ffc299;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 
@@ -38,7 +57,8 @@
         </div>
         <div class="col-md-3">
           <label>&nbsp;</label>
-          <button id="btnBuscar" class="btn btn-primary btn-block" onclick="buscar()">
+          <!-- Aquí se cambió btn-primary por btn-naranja -->
+          <button id="btnBuscar" class="btn btn-naranja btn-block" onclick="buscar()">
             <span id="btnText">Buscar</span>
             <span id="btnLoader" class="loader" style="display:none;"></span>
           </button>
@@ -74,15 +94,14 @@
 let tabla;
 
  $(document).ready(function () {
-  // Configuración inicial de la tabla con todas sus columnas
   tabla = $('#tabla').DataTable({
     language: { url: "//cdn.datatables.net/plug-ins/1.13.6/i18n/es-ES.json" },
     dom: 'Bfrtip',
     buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
     pageLength: 50,
-    order: [[ 2, "desc" ]], // Ordenar por fecha
+    order: [[ 2, "desc" ]],
     columnDefs: [{
-      targets: 2, // Formatear columna Fecha
+      targets: 2,
       render: function (data, type, row) {
         if (type === 'sort' || type === 'filter' || !data) return data;
         try {
@@ -93,7 +112,6 @@ let tabla;
     }]
   });
 
-  // Fechas por defecto (hoy)
   let hoy = new Date().toISOString().split("T")[0];
   document.getElementById("start_date").value = hoy;
   document.getElementById("end_date").value = hoy;
@@ -112,12 +130,10 @@ async function buscar() {
   tabla.clear().draw();
 
   try {
-    // UNA SOLA PETICIÓN AL SERVIDOR
     const res = await fetch(`/api/guias?start_date=${start}&end_date=${end}`);
     const data = await res.json();
 
     if (data.ok) {
-      // INSERCIÓN ULTRA RÁPIDA (DataTables lo procesa en milisegundos)
       tabla.rows.add(data.rows).draw();
       Swal.fire("¡Listo!", `${data.rows.length} guías cargadas.`, "success");
     } else {
