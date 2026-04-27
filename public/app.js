@@ -13,7 +13,7 @@ app.get("/api/guias", async (req, res) => {
 
   try {
     const response = await fetch(url, {
-      headers: { "Api-Key": "TU_API_KEY_AQUI" }
+      headers: { "Api-Key": "4119b22963cd34982cba2762c73e833967e53277d0e79fd914ca22e9e4840f9b" }
     });
 
     const data = await response.json();
