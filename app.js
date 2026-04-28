@@ -11,26 +11,25 @@ app.get("/api/guias", async (req, res) => {
   const url = `https://api.hekaentrega.co/api/v1/shipments/guide?page=${page}&start_date=${start_date}&end_date=${end_date}`;
 
   try {
-    // ⚠️ CONTROL DE TIEMPO: Si Heka no responde en 10 segundos, cancelamos la petición.
+    // Seguro de 10 segundos: si Heka no responde, cancela para evitar el 502 de Render
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10 segundos máximo
+    const timeout = setTimeout(() => controller.abort(), 10000);
 
     const response = await fetch(url, {
       headers: { "Api-Key": API_KEY },
       signal: controller.signal
     });
 
-    clearTimeout(timeout); // Si respondió rápido, cancelamos la alarma
+    clearTimeout(timeout);
 
     const data = await response.json();
 
     if (!data.response) {
-      return res.status(500).json({ ok: false, error: "La API de Heka no devolvió datos en esta página." });
+      return res.json({ ok: false, error: "Sin datos en esta página" });
     }
 
     const totalPages = data.response.pager?.pages || 1;
 
-    // Mapeo de datos
     const cleanRows = (data.response.rows || []).map(row => {
       let estado = "";
       if (row.movemens && row.movemens.length > 0) {
@@ -54,15 +53,9 @@ app.get("/api/guias", async (req, res) => {
     res.json({ ok: true, totalPages: totalPages, rows: cleanRows });
 
   } catch (error) {
-    // Si falla por el timeout de 10 segundos, entramos aquí
-    if (error.name === 'AbortError') {
-      res.status(504).json({ ok: false, error: "Timeout: Heka tardó más de 10 segundos en esta página." });
-    } else {
-      res.status(500).json({ ok: false, error: String(error) });
-    }
+    // Si falla por el límite de 10 segundos, avisa para que el frontend salte la página
+    res.json({ ok: false, error: "Timeout" });
   }
 });
 
-app.listen(PORT, () => {
-  console.log("🚀 Servidor corriendo en puerto " + PORT);
-});
+app.listen(PORT, () => console.log("Servidor corriendo en puerto " + PORT));
