@@ -60,7 +60,6 @@ app.get("/api/guias", async (req, res) => {
       ];
     });
 
-    // Liberar referencia pesada antes de responder
     data.response.rows = null;
 
     res.json({ ok: true, totalPages, rows: cleanRows });
