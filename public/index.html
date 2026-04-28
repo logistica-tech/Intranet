@@ -24,6 +24,7 @@
     .resumen-box .numero { font-size: 2.8rem; font-weight: 800; color: #d45e00; line-height: 1; }
     .resumen-box .etiqueta { font-size: 0.95rem; color: #8a5a2a; margin-top: 4px; }
     .mem-badge { display: inline-block; background: #e8f5e9; color: #2e7d32; padding: 3px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
+    .velocidad-badge { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 3px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; margin-left: 5px; }
   </style>
 </head>
 
@@ -34,7 +35,7 @@
     <div class="card-body">
       <h3 class="card-title mb-4">Reporte de Guías</h3>
       <p class="text-muted mb-3" style="font-size:0.9rem;">
-        <strong>Modo directo a Excel:</strong> Los datos se acumulan en memoria sin renderizar tabla. Al terminar se descarga el archivo automáticamente.
+        <strong>Descarga paralela:</strong> Trae varias páginas al mismo tiempo sin dibujar tabla. Un mes completo se descarga en segundos.
       </p>
 
       <div class="row">
@@ -67,6 +68,7 @@
         </div>
         <div class="text-right mt-1">
           <span id="memoriaUsada" class="mem-badge">--</span>
+          <span id="velocidadBadge" class="velocidad-badge" style="display:none;">--</span>
         </div>
       </div>
 
@@ -89,13 +91,13 @@
 });
 
 function pausa(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
 }
 
 function formatFecha(raw) {
   if (!raw) return "";
   try {
-    const d = new Date(raw);
+    let d = new Date(raw);
     return d.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' })
       + " " + d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
   } catch (e) { return raw; }
@@ -103,16 +105,37 @@ function formatFecha(raw) {
 
 function actualizarMemoria() {
   if (performance.memory) {
-    const mb = (performance.memory.usedJSHeapSize / 1048576).toFixed(1);
+    let mb = (performance.memory.usedJSHeapSize / 1048576).toFixed(1);
     document.getElementById("memoriaUsada").innerText = "RAM: " + mb + " MB";
   } else {
     document.getElementById("memoriaUsada").innerText = "RAM: N/D";
   }
 }
 
+// Trae UNA página individual con reintento automático
+async function fetchPagina(start, end, page) {
+  let intentos = 0;
+  while (intentos < 3) {
+    try {
+      let res = await fetch("/api/guias?start_date=" + start + "&end_date=" + end + "&page=" + page);
+      if (!res.ok) {
+        intentos++;
+        await pausa(2000);
+        continue;
+      }
+      let data = await res.json();
+      return data;
+    } catch (e) {
+      intentos++;
+      await pausa(2000);
+    }
+  }
+  return null;
+}
+
 async function buscar() {
-  const start = document.getElementById("start_date").value;
-  const end = document.getElementById("end_date").value;
+  let start = document.getElementById("start_date").value;
+  let end = document.getElementById("end_date").value;
 
   if (!start || !end) return Swal.fire("Advertencia", "Selecciona fechas", "warning");
 
@@ -125,63 +148,82 @@ async function buscar() {
   document.getElementById("barraProgreso").style.width = "0%";
   document.getElementById("porcentajeProgreso").innerText = "0%";
   document.getElementById("textoProgreso").innerText = "Conectando...";
+  document.getElementById("velocidadBadge").style.display = "none";
 
   let todasLasGuias = [];
-  let page = 1;
-  let totalPages = 1;
-  let reintentos = 0;
-
-  const encabezados = [
+  let encabezados = [
     "Guía", "Estado", "Fecha", "Empresa", "Remitente",
     "Destinatario", "Ciudad Dest.", "Transportadora",
     "Tipo Pago", "Total", "Recaudo"
   ];
 
+  // Cuántas páginas traer al mismo tiempo (5 es agresivo pero rápido)
+  let LOTE = 5;
+
+  let tiempoInicio = Date.now();
+
   try {
-    while (page <= totalPages) {
+    // PASO 1: Traer página 1 para saber cuántas páginas hay en total
+    let primera = await fetchPagina(start, end, 1);
 
-      const res = await fetch("/api/guias?start_date=" + start + "&end_date=" + end + "&page=" + page);
+    if (!primera || !primera.ok) {
+      throw new Error("No se pudo conectar o no hay datos en ese rango.");
+    }
 
-      if (!res.ok) {
-        reintentos++;
-        if (reintentos >= 5) throw new Error("El servidor falló 5 veces seguidas. Intenta con un rango de fechas más pequeño (1 semana máximo).");
+    let totalPages = primera.totalPages;
 
-        document.getElementById("alertaReintento").style.display = "block";
-        document.getElementById("alertaReintento").innerText =
-          "El servidor se saturó en la página " + page + ". Esperando recuperación... (" + reintentos + "/5)";
+    if (primera.rows && primera.rows.length > 0) {
+      todasLasGuias = todasLasGuias.concat(primera.rows);
+    }
 
-        await pausa(6000);
-        document.getElementById("alertaReintento").style.display = "none";
-        continue;
+    let porcentaje = totalPages > 1 ? Math.round((1 / totalPages) * 100) : 100;
+    document.getElementById("barraProgreso").style.width = porcentaje + "%";
+    document.getElementById("porcentajeProgreso").innerText = porcentaje + "%";
+    document.getElementById("textoProgreso").innerText =
+      "Página 1 de " + totalPages + " — " + todasLasGuias.length + " guías";
+
+    // Si solo hay 1 página, ya terminamos
+    if (totalPages <= 1) {
+      // saltar directo a generar Excel
+    } else {
+      // PASO 2: Traer el resto en lotes paralelos
+      let paginasRestantes = [];
+      for (let p = 2; p <= totalPages; p++) {
+        paginasRestantes.push(p);
       }
 
-      const data = await res.json();
+      // Recorrer en bloques de LOTE
+      for (let i = 0; i < paginasRestantes.length; i += LOTE) {
+        let bloque = paginasRestantes.slice(i, i + LOTE);
 
-      if (!data.ok) {
-        page++;
-        continue;
-      }
+        // Disparar todas las peticiones del bloque al mismo tiempo
+        let promesas = bloque.map(function (pagina) {
+          return fetchPagina(start, end, pagina);
+        });
 
-      reintentos = 0;
-      totalPages = data.totalPages;
+        let resultados = await Promise.all(promesas);
 
-      if (data.rows && data.rows.length > 0) {
-        for (let i = 0; i < data.rows.length; i++) {
-          data.rows[i][2] = formatFecha(data.rows[i][2]);
+        // Acumular los resultados exitosos
+        for (let j = 0; j < resultados.length; j++) {
+          let r = resultados[j];
+          if (r && r.ok && r.rows && r.rows.length > 0) {
+            todasLasGuias = todasLasGuias.concat(r.rows);
+          }
         }
-        todasLasGuias = todasLasGuias.concat(data.rows);
+
+        // Actualizar progreso con la última página del bloque
+        let ultimaPag = bloque[bloque.length - 1];
+        let pct = Math.round((ultimaPag / totalPages) * 100);
+        document.getElementById("barraProgreso").style.width = pct + "%";
+        document.getElementById("porcentajeProgreso").innerText = pct + "%";
+        document.getElementById("textoProgreso").innerText =
+          "Página " + ultimaPag + " de " + totalPages + " — " + todasLasGuias.length + " guías";
+
+        actualizarMemoria();
+
+        // Pausa mínima entre bloques para no quemar el servidor
+        await pausa(100);
       }
-
-      const porcentaje = Math.round((page / totalPages) * 100);
-      document.getElementById("barraProgreso").style.width = porcentaje + "%";
-      document.getElementById("porcentajeProgreso").innerText = porcentaje + "%";
-      document.getElementById("textoProgreso").innerText =
-        "Página " + page + " de " + totalPages + " — " + todasLasGuias.length + " guías acumuladas";
-
-      actualizarMemoria();
-
-      page++;
-      await pausa(350);
     }
 
     if (todasLasGuias.length === 0) {
@@ -189,50 +231,55 @@ async function buscar() {
       return;
     }
 
+    // PASO 3: Generar Excel
     document.getElementById("textoProgreso").innerText = "Generando archivo Excel...";
     document.getElementById("barraProgreso").style.width = "100%";
     document.getElementById("porcentajeProgreso").innerText = "100%";
-    await pausa(100);
+    await pausa(50);
+
+    // Formatear fechas de golpe
+    for (let i = 0; i < todasLasGuias.length; i++) {
+      todasLasGuias[i][2] = formatFecha(todasLasGuias[i][2]);
+    }
 
     let aoa = [encabezados].concat(todasLasGuias);
     let ws = XLSX.utils.aoa_to_sheet(aoa);
 
     ws['!cols'] = [
-      { wch: 18 },
-      { wch: 22 },
-      { wch: 22 },
-      { wch: 30 },
-      { wch: 30 },
-      { wch: 30 },
-      { wch: 20 },
-      { wch: 16 },
-      { wch: 22 },
-      { wch: 12 },
-      { wch: 12 }
+      { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 30 },
+      { wch: 30 }, { wch: 30 }, { wch: 20 }, { wch: 16 },
+      { wch: 22 }, { wch: 12 }, { wch: 12 }
     ];
 
     let wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Guias");
 
-    const nombreArchivo = "Guias_" + start + "_" + end + ".xlsx";
+    let nombreArchivo = "Guias_" + start + "_" + end + ".xlsx";
 
     XLSX.writeFile(wb, nombreArchivo);
 
-    const totalDescargadas = todasLasGuias.length;
+    let totalDescargadas = todasLasGuias.length;
+    let tiempoTotal = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
 
     todasLasGuias = null;
     aoa = null;
     ws = null;
     wb = null;
 
+    // Mostrar resumen
     document.getElementById("resumenNumero").innerText = totalDescargadas;
-    document.getElementById("resumenRango").innerText = start + " → " + end + " — Archivo: " + nombreArchivo;
+    document.getElementById("resumenRango").innerText =
+      start + " → " + end + " — Archivo: " + nombreArchivo;
     document.getElementById("resumenFinal").style.display = "block";
+
+    // Mostrar badge de velocidad
+    document.getElementById("velocidadBadge").style.display = "inline-block";
+    document.getElementById("velocidadBadge").innerText = tiempoTotal + "s";
 
     Swal.fire({
       icon: "success",
       title: "Descarga lista",
-      text: nombreArchivo,
+      text: totalDescargadas + " guías en " + tiempoTotal + " segundos",
       confirmButtonText: "OK",
       confirmButtonColor: "#ff7e00"
     });
@@ -249,7 +296,8 @@ async function buscar() {
     setTimeout(function () {
       document.getElementById("contenedorProgreso").style.display = "none";
       document.getElementById("barraProgreso").style.width = "0%";
-    }, 3000);
+      document.getElementById("velocidadBadge").style.display = "none";
+    }, 4000);
   }
 }
 
